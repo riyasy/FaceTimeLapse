@@ -1,0 +1,11 @@
+# Create a virtual environment 
+python3 -m venv myenv
+
+to activate virtual environment (here there is no name for venv and venv itself was used)
+source venv/bin/activate
+
+to create requirements.txt from the current state of venv
+pip3 freeze > requirements.txt
+
+to install dependencies based on requirements.txt
+pip3  install -r requirements.txt

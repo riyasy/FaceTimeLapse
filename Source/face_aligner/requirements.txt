@@ -1,0 +1,5 @@
+dlib==19.24.6
+ffmpeg-python==0.2.0
+future==1.0.0
+numpy==2.2.3
+opencv-python==4.11.0.86
