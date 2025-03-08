@@ -6,9 +6,11 @@ import math
 import subprocess
 import shutil
 
+from util import clear_directory
+
 # Configurable output resolution constants
-OUTPUT_WIDTH = 1280
-OUTPUT_HEIGHT = 720
+OUTPUT_WIDTH = 4096
+OUTPUT_HEIGHT = 2160
 
 # Padding color for foreground (RGB)
 PADDING_COLOR = (57, 255, 20)
@@ -23,7 +25,7 @@ def detect_face_and_eyes(image, face_rect=None):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     
     if face_rect is None:
-        faces = detector(gray, 1)
+        faces = detector(gray, 0)
         if len(faces) == 0:
             return None
         faces = sorted(faces, key=lambda x: x.rect.width() * x.rect.height(), reverse=True)
@@ -199,24 +201,6 @@ def process_video(video_path, output_path, debug_dir, face_rect=None, face_suffi
             os.remove(temp_video_path)
         return False
 
-# === Main Processing Function ===
-def clear_directory(directory):
-    """Removes all files and subdirectories in the specified directory."""
-    if os.path.exists(directory):
-        for item in os.listdir(directory):
-            item_path = os.path.join(directory, item)
-            try:
-                if os.path.isfile(item_path):
-                    os.unlink(item_path)
-                elif os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
-            except Exception as e:
-                print(f"Error clearing {item_path}: {e}")
-        print(f"Cleared directory: {directory}")
-    else:
-        os.makedirs(directory)
-        print(f"Created directory: {directory}")
-
 def copy_to_failed_videos(video_path, failed_dir):
     """Copies the input video to the failed_videos directory."""
     try:
@@ -261,7 +245,7 @@ def process_videos(video_dir, output_dir, debug_dir, failed_dir="failed_videos")
         cv2.imwrite(os.path.join(debug_dir, f"{video_name}_first_frame_original.jpg"), first_frame)
 
         gray = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
-        faces = detector(gray, 1)
+        faces = detector(gray, 0)
         if len(faces) == 0:
             print(f"No faces detected in {video_path}, skipping.")
             processing_results[video_path] = {'detected': 0, 'processed': 0}
@@ -289,4 +273,4 @@ def process_videos(video_dir, output_dir, debug_dir, failed_dir="failed_videos")
         print(f"{status} {os.path.basename(video_path)} - Faces detected: {stats['detected']}, Processed: {stats['processed']}")
 
 # Run processing
-process_videos("input_videos", "output_videos", "debug_frames", "failed_videos")
+process_videos("02_input_videos_cfr", "08_output_videos", "99_debug_frames", "92_failed_videos")

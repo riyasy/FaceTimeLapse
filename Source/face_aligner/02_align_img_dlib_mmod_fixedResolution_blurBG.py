@@ -5,11 +5,13 @@ import os
 import math
 import shutil
 
+from util import clear_directory
+
 # Configurable output resolution constants
-OUTPUT_WIDTH = 1280
-OUTPUT_HEIGHT = 720
+OUTPUT_WIDTH = 4096
+OUTPUT_HEIGHT = 2160
 FPS = 30  # Fixed FPS for output videos
-VIDEO_DURATION_FRAMES = 30  # 1 second at 30 FPS
+VIDEO_DURATION_FRAMES = 33  # 1 second at 30 FPS
 
 # Padding color for foreground (RGB)
 PADDING_COLOR = (57, 255, 20)
@@ -18,16 +20,19 @@ PADDING_COLOR = (57, 255, 20)
 detector = dlib.cnn_face_detection_model_v1("mmod_human_face_detector.dat")
 predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
 
+
 # === Face Detection Functions ===
 def detect_face_and_eyes(image, face_rect=None):
     """Detects face and eyes using dlib MMOD, returns face center, eye distance, and eye positions."""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    
+
     if face_rect is None:
-        faces = detector(gray, 1)
+        faces = detector(gray, 0)
         if len(faces) == 0:
             return None
-        faces = sorted(faces, key=lambda x: x.rect.width() * x.rect.height(), reverse=True)
+        faces = sorted(
+            faces, key=lambda x: x.rect.width() * x.rect.height(), reverse=True
+        )
         face = faces[0].rect
     else:
         face = face_rect
@@ -40,6 +45,7 @@ def detect_face_and_eyes(image, face_rect=None):
     eye_distance = np.linalg.norm(np.array(left_eye) - np.array(right_eye))
 
     return face_center, eye_distance, left_eye, right_eye
+
 
 def compute_transformation_matrix(frame, face_rect, target_eye_ratio=0.15):
     """Computes transformation matrices to align face with proper scaling and rotation."""
@@ -71,6 +77,7 @@ def compute_transformation_matrix(frame, face_rect, target_eye_ratio=0.15):
 
     return M, M2
 
+
 # === Image Processing Functions ===
 def initialize_image_reader(image_path):
     """Reads the input image."""
@@ -80,31 +87,43 @@ def initialize_image_reader(image_path):
         return None
     return image
 
+
 def process_image_to_video(image, out, M, M2, debug_dir, image_name, face_suffix):
     """Processes the image and writes it as a 30-frame video."""
     # Apply M2 transformation with default (black) padding and blur for background
     background = cv2.warpAffine(image, M2, (OUTPUT_WIDTH, OUTPUT_HEIGHT))
     background = cv2.GaussianBlur(background, (41, 41), 0)
-    
+
     # Apply M transformation with specific padding color for foreground
-    foreground = cv2.warpAffine(image, M, (OUTPUT_WIDTH, OUTPUT_HEIGHT),
-                              borderMode=cv2.BORDER_CONSTANT, borderValue=PADDING_COLOR)
-    
+    foreground = cv2.warpAffine(
+        image,
+        M,
+        (OUTPUT_WIDTH, OUTPUT_HEIGHT),
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=PADDING_COLOR,
+    )
+
     # Create mask based on exact padding color
     mask = (foreground == PADDING_COLOR).all(axis=2).astype(np.uint8) * 255
     mask = cv2.merge([mask, mask, mask])
-    
+
     # Combine background and foreground
     transformed_frame = np.where(mask == 0, foreground, background)
-    
+
     # Write the transformed frame 30 times for a 1-second video
     for _ in range(VIDEO_DURATION_FRAMES):
         out.write(transformed_frame)
 
     # Save the transformed frame to debug folder
-    cv2.imwrite(os.path.join(debug_dir, f"{image_name}{face_suffix}_first_frame_transformed.jpg"), transformed_frame)
-    
+    cv2.imwrite(
+        os.path.join(
+            debug_dir, f"{image_name}{face_suffix}_first_frame_transformed.jpg"
+        ),
+        transformed_frame,
+    )
+
     return True  # Success if we reach here
+
 
 def process_image(image_path, output_path, debug_dir, face_rect=None, face_suffix=""):
     """Main image processing function coordinating all steps."""
@@ -113,49 +132,38 @@ def process_image(image_path, output_path, debug_dir, face_rect=None, face_suffi
         return False
 
     image_name = os.path.splitext(os.path.basename(image_path))[0]
-    output_video_path = os.path.join(os.path.dirname(output_path), f"{image_name}{face_suffix}.mp4")
+    output_video_path = os.path.join(
+        os.path.dirname(output_path), f"{image_name}{face_suffix}.mp4"
+    )
 
     M, M2 = compute_transformation_matrix(image, face_rect)
     if M is None or M2 is None:
         print(f"No face detected in image {image_path} for {face_suffix}, skipping.")
         return False
 
-    fourcc = cv2.VideoWriter_fourcc(*'H264')
+    fourcc = cv2.VideoWriter_fourcc(*"H264")
     out = cv2.VideoWriter(output_video_path, fourcc, FPS, (OUTPUT_WIDTH, OUTPUT_HEIGHT))
     if not out.isOpened():
         print(f"Error: Could not open output video writer for {output_video_path}")
         return False
 
-    success = process_image_to_video(image, out, M, M2, debug_dir, image_name, face_suffix)
-    
+    success = process_image_to_video(
+        image, out, M, M2, debug_dir, image_name, face_suffix
+    )
+
     out.release()
-    
+
     if success:
         print(f"Processed: {output_video_path} ({VIDEO_DURATION_FRAMES} frames)")
         return True
     else:
-        print(f"Error: Image processing failed for {output_video_path}, removing incomplete file")
+        print(
+            f"Error: Image processing failed for {output_video_path}, removing incomplete file"
+        )
         if os.path.exists(output_video_path):
             os.remove(output_video_path)
         return False
 
-# === Main Processing Function ===
-def clear_directory(directory):
-    """Removes all files and subdirectories in the specified directory."""
-    if os.path.exists(directory):
-        for item in os.listdir(directory):
-            item_path = os.path.join(directory, item)
-            try:
-                if os.path.isfile(item_path):
-                    os.unlink(item_path)
-                elif os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
-            except Exception as e:
-                print(f"Error clearing {item_path}: {e}")
-        print(f"Cleared directory: {directory}")
-    else:
-        os.makedirs(directory)
-        print(f"Created directory: {directory}")
 
 def copy_to_failed_images(image_path, failed_dir):
     """Copies the input image to the failed_images directory."""
@@ -166,12 +174,13 @@ def copy_to_failed_images(image_path, failed_dir):
     except Exception as e:
         print(f"Error copying {image_path} to failed_images: {e}")
 
+
 def process_images(input_dir, output_dir, debug_dir, failed_dir="failed_images"):
     """Processes all images in the folder and prints summary."""
     clear_directory(output_dir)
     clear_directory(debug_dir)
     clear_directory(failed_dir)
-    
+
     processing_results = {}
 
     for image in sorted(os.listdir(input_dir)):
@@ -184,40 +193,55 @@ def process_images(input_dir, output_dir, debug_dir, failed_dir="failed_images")
         image_data = cv2.imread(image_path)
         if image_data is None:
             print(f"Error: Could not open {image_path}")
-            processing_results[image_path] = {'detected': 0, 'processed': 0}
+            processing_results[image_path] = {"detected": 0, "processed": 0}
             copy_to_failed_images(image_path, failed_dir)
             continue
 
         image_name = os.path.splitext(os.path.basename(image_path))[0]
-        cv2.imwrite(os.path.join(debug_dir, f"{image_name}_first_frame_original.jpg"), image_data)
+        cv2.imwrite(
+            os.path.join(debug_dir, f"{image_name}_first_frame_original.jpg"),
+            image_data,
+        )
 
         gray = cv2.cvtColor(image_data, cv2.COLOR_BGR2GRAY)
         faces = detector(gray, 0)
         if len(faces) == 0:
             print(f"No faces detected in {image_path}, skipping.")
-            processing_results[image_path] = {'detected': 0, 'processed': 0}
+            processing_results[image_path] = {"detected": 0, "processed": 0}
             copy_to_failed_images(image_path, failed_dir)
             continue
 
-        faces = sorted(faces, key=lambda x: x.rect.width() * x.rect.height(), reverse=True)
-        faces_to_process = [f.rect for f in faces[:min(3, len(faces))]]
+        faces = sorted(
+            faces, key=lambda x: x.rect.width() * x.rect.height(), reverse=True
+        )
+        faces_to_process = [f.rect for f in faces[: min(3, len(faces))]]
         processed_count = 0
 
         for i, face in enumerate(faces_to_process, 1):
             face_suffix = f"_face{i:02d}"
-            success = process_image(image_path, output_path, debug_dir, face, face_suffix)
+            success = process_image(
+                image_path, output_path, debug_dir, face, face_suffix
+            )
             if success:
                 processed_count += 1
 
-        processing_results[image_path] = {'detected': len(faces), 'processed': processed_count}
-        
+        processing_results[image_path] = {
+            "detected": len(faces),
+            "processed": processed_count,
+        }
+
         if processed_count == 0:
             copy_to_failed_images(image_path, failed_dir)
 
     print("\n=== Processing Summary ===")
     for image_path, stats in processing_results.items():
-        status = "✓" if stats['processed'] > 0 else "✗"
-        print(f"{status} {os.path.basename(image_path)} - Faces detected: {stats['detected']}, Processed: {stats['processed']}")
+        status = "✓" if stats["processed"] > 0 else "✗"
+        print(
+            f"{status} {os.path.basename(image_path)} - Faces detected: {stats['detected']}, Processed: {stats['processed']}"
+        )
+
 
 # Run processing
-process_images("input_images", "output_videos", "debug_frames", "failed_images")
+process_images(
+    "00_input_images", "08_output_videos", "99_debug_frames", "91_failed_images"
+)

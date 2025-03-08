@@ -128,4 +128,4 @@ def process_videos(video_dir, output_dir, debug_dir):
         process_video(video_path, output_path, debug_dir)
 
 # Run processing
-process_videos("input_videos", "output_videos", "debug_frames")
+process_videos("02_input_videos_cfr", "08_output_videos", "99_debug_frames")
