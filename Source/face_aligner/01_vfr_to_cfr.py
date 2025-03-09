@@ -4,7 +4,7 @@ import shutil
 from util import clear_directory
 
 
-def convert_to_constant_fps(input_dir, output_dir, failed_dir, target_fps=30):
+def convert_to_constant_fps(input_dir, output_dir, failed_dir, target_fps=24):
     """Converts all videos in input_dir to constant FPS and saves them in output_dir."""
     # Clear and prepare directories
     clear_directory(output_dir)
@@ -29,7 +29,7 @@ def convert_to_constant_fps(input_dir, output_dir, failed_dir, target_fps=30):
             "-c:v",
             "libx264",
             "-preset",
-            "slow",
+            "fast",
             "-crf",
             "18",
             "-c:a",

@@ -30,7 +30,7 @@ def initialize_video_reader(video_path):
     return first_frame, os.path.splitext(os.path.basename(video_path))[0]
 
 def annotate_frame(frame, debug_dir, video_name):
-    """Annotates the first frame with face rectangles (red) and eye centers (green X)."""
+    """Annotates the first frame with face rectangles (red), eye landmarks (green), and iris centers (red)."""
     # Scale down frame for faster detection
     scale_factor = 0.5
     scaled_frame = cv2.resize(
@@ -68,42 +68,51 @@ def annotate_frame(frame, debug_dir, video_name):
             2,  # Thickness
         )
 
-        # Get landmarks for eyes
+        # Get all landmarks
         landmarks = predictor(frame, rect)  # Use original frame for accuracy
 
-        # Calculate left eye center (average of landmarks 36-41)
+        # Mark all eye-related points (36-47) in green
+        for i in range(36, 48):  # Left eye: 36-41, Right eye: 42-47
+            point = (landmarks.part(i).x, landmarks.part(i).y)
+            # cv2.drawMarker(
+            #     annotated_frame,
+            #     point,
+            #     (0, 255, 0),  # Green in BGR
+            #     markerType=cv2.MARKER_CROSS,
+            #     markerSize=10,
+            #     thickness=2,
+            # )
+
+        # Calculate and mark iris centers in red
+        # Left eye (36-41)
         left_eye_points = [(landmarks.part(i).x, landmarks.part(i).y) for i in range(36, 42)]
-        left_eye_center = (
-            int(sum(p[0] for p in left_eye_points) / 6),
-            int(sum(p[1] for p in left_eye_points) / 6)
+        left_iris_center = (
+            int(sum(p[0] for p in left_eye_points) / 6),  # Average x
+            int(sum(p[1] for p in left_eye_points) / 6)   # Average y
         )
+        # cv2.drawMarker(
+        #     annotated_frame,
+        #     left_iris_center,
+        #     (0, 0, 255),  # Red in BGR
+        #     markerType=cv2.MARKER_CROSS,  # Changed to cross
+        #     markerSize=8,
+        #     thickness=2,
+        # )
 
-        # Calculate right eye center (average of landmarks 42-47)
+        # Right eye (42-47)
         right_eye_points = [(landmarks.part(i).x, landmarks.part(i).y) for i in range(42, 48)]
-        right_eye_center = (
-            int(sum(p[0] for p in right_eye_points) / 6),
-            int(sum(p[1] for p in right_eye_points) / 6)
+        right_iris_center = (
+            int(sum(p[0] for p in right_eye_points) / 6),  # Average x
+            int(sum(p[1] for p in right_eye_points) / 6)   # Average y
         )
-
-        # Draw green X for left eye center
-        cv2.drawMarker(
-            annotated_frame,
-            left_eye_center,
-            (0, 255, 0),  # Green in BGR
-            markerType=cv2.MARKER_CROSS,
-            markerSize=10,
-            thickness=2,
-        )
-
-        # Draw green X for right eye center
-        cv2.drawMarker(
-            annotated_frame,
-            right_eye_center,
-            (0, 255, 0),  # Green in BGR
-            markerType=cv2.MARKER_CROSS,
-            markerSize=10,
-            thickness=2,
-        )
+        # cv2.drawMarker(
+        #     annotated_frame,
+        #     right_iris_center,
+        #     (0, 0, 255),  # Red in BGR
+        #     markerType=cv2.MARKER_CROSS,  # Changed to cross
+        #     markerSize=8,
+        #     thickness=2,
+        # )
 
     # Save annotated frame
     output_path = os.path.join(debug_dir, f"{video_name}_faces_annotated.jpg")
@@ -111,7 +120,7 @@ def annotate_frame(frame, debug_dir, video_name):
     return True
 
 def annotate_frame2(frame, debug_dir, video_name):
-    """Annotates the first frame with face rectangles (red) and eye positions (green X)."""
+    """Annotates the first frame with face rectangles (red), eye landmarks (green), and iris centers (red)."""
     # Scale down frame for faster detection
     scale_factor = 0.5
     scaled_frame = cv2.resize(
@@ -149,30 +158,51 @@ def annotate_frame2(frame, debug_dir, video_name):
             2,  # Thickness
         )
 
-        # Get landmarks for eyes
+        # Get all landmarks
         landmarks = predictor(frame, rect)  # Use original frame for accuracy
-        left_eye = (landmarks.part(36).x, landmarks.part(36).y)
-        right_eye = (landmarks.part(45).x, landmarks.part(45).y)
 
-        # Draw green X for left eye
-        cv2.drawMarker(
-            annotated_frame,
-            left_eye,
-            (0, 255, 0),  # Green in BGR
-            markerType=cv2.MARKER_CROSS,
-            markerSize=10,
-            thickness=2,
-        )
+        # Mark all eye-related points (36-47) in green
+        for i in range(36, 48):  # Left eye: 36-41, Right eye: 42-47
+            point = (landmarks.part(i).x, landmarks.part(i).y)
+            # cv2.drawMarker(
+            #     annotated_frame,
+            #     point,
+            #     (0, 255, 0),  # Green in BGR
+            #     markerType=cv2.MARKER_CROSS,
+            #     markerSize=10,
+            #     thickness=2,
+            # )
 
-        # Draw green X for right eye
-        cv2.drawMarker(
-            annotated_frame,
-            right_eye,
-            (0, 255, 0),  # Green in BGR
-            markerType=cv2.MARKER_CROSS,
-            markerSize=10,
-            thickness=2,
+        # Calculate and mark iris centers in red
+        # Left eye (36-41)
+        left_eye_points = [(landmarks.part(i).x, landmarks.part(i).y) for i in range(36, 42)]
+        left_iris_center = (
+            int(sum(p[0] for p in left_eye_points) / 6),  # Average x
+            int(sum(p[1] for p in left_eye_points) / 6)   # Average y
         )
+        # cv2.drawMarker(
+        #     annotated_frame,
+        #     left_iris_center,
+        #     (0, 0, 255),  # Red in BGR
+        #     markerType=cv2.MARKER_CROSS,  # Changed to cross
+        #     markerSize=8,
+        #     thickness=2,
+        # )
+
+        # Right eye (42-47)
+        right_eye_points = [(landmarks.part(i).x, landmarks.part(i).y) for i in range(42, 48)]
+        right_iris_center = (
+            int(sum(p[0] for p in right_eye_points) / 6),  # Average x
+            int(sum(p[1] for p in right_eye_points) / 6)   # Average y
+        )
+        # cv2.drawMarker(
+        #     annotated_frame,
+        #     right_iris_center,
+        #     (0, 0, 255),  # Red in BGR
+        #     markerType=cv2.MARKER_CROSS,  # Changed to cross
+        #     markerSize=8,
+        #     thickness=2,
+        # )
 
     # Save annotated frame
     output_path = os.path.join(debug_dir, f"{video_name}_faces_annotated.jpg")
@@ -222,4 +252,4 @@ def process_videos(input_dir="02_input_videos_cfr", debug_dir="99_debug_frames")
         print(f"{status} {os.path.basename(video_path)} - Annotated: {success}")
 
 # Run processing
-process_videos("/Users/riyasyoosuf/Desktop/Input/Phase1_CleanedUp/Videos+LivePhotos_4K_CFR", "99_debug_frames")
+process_videos("01_input_videos_vfr", "99_debug_frames")

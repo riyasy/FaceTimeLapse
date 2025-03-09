@@ -9,3 +9,14 @@ pip3 freeze > requirements.txt
 
 to install dependencies based on requirements.txt
 pip3  install -r requirements.txt
+
+
+Scale Ratios applied
+
+2020,2021 - 0.15
+2022 - 0.13
+2023 - Jan to May - 0.115
+Rest 0.105
+
+spider man face not detected (2023 08 30)
+20230830_184532 (iPhone 11).MOV

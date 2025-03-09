@@ -10,7 +10,7 @@ directories = [
     "01_input_videos_vfr", 
     "02_input_videos_cfr",
     "07_output_images",
-    #"08_output_videos",
+    "08_output_videos",
     "09_output_clips",
     "10_final_video",
     "91_failed_images",
