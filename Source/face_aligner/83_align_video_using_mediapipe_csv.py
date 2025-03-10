@@ -118,7 +118,7 @@ def initialize_video_reader(video_path):
 
 
 def process_frames(cap, out, M, M2, debug_dir, video_name, face_suffix):
-    """Processes all frames with transformation, using M2 for background and M for foreground."""
+    """Processes all frames with transformation, skipping background if foreground fills frame."""
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
     first_frame_transformed = None
     frames_written = 0
@@ -138,6 +138,10 @@ def process_frames(cap, out, M, M2, debug_dir, video_name, face_suffix):
     )
     mask = (foreground == PADDING_COLOR).all(axis=2).astype(np.uint8) * 255
     mask = cv2.merge([mask, mask, mask])
+
+    # Check if foreground fills the frame (mask is all zeros)
+    foreground_fills_frame = not np.any(mask)  # True if no padding pixels
+
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Reset to start processing all frames
 
     while True:
@@ -148,8 +152,7 @@ def process_frames(cap, out, M, M2, debug_dir, video_name, face_suffix):
             break
         frames_read += 1
 
-        background = cv2.warpAffine(frame, M2, (OUTPUT_WIDTH, OUTPUT_HEIGHT))
-        background = cv2.GaussianBlur(background, (41, 41), 0)
+        # Foreground transformation
         foreground = cv2.warpAffine(
             frame,
             M,
@@ -157,8 +160,17 @@ def process_frames(cap, out, M, M2, debug_dir, video_name, face_suffix):
             borderMode=cv2.BORDER_CONSTANT,
             borderValue=PADDING_COLOR,
         )
-        aligned_frame = np.where(mask == 0, foreground, background)
 
+        if foreground_fills_frame:
+            # Skip background processing; use foreground directly
+            aligned_frame = foreground
+        else:
+            # Background transformation and blur (optimized order)
+            background = cv2.GaussianBlur(frame, (41, 41), 0)
+            background = cv2.warpAffine(background, M2, (OUTPUT_WIDTH, OUTPUT_HEIGHT))
+            aligned_frame = np.where(mask == 0, foreground, background)
+
+        # Write frame directly (no buffering)
         out.write(aligned_frame)
         frames_written += 1
         if first_frame_transformed is None:
@@ -166,9 +178,7 @@ def process_frames(cap, out, M, M2, debug_dir, video_name, face_suffix):
 
     if DEBUG and first_frame_transformed is not None:
         cv2.imwrite(
-            os.path.join(
-                debug_dir, f"{video_name}{face_suffix}_first_frame_transformed.jpg"
-            ),
+            os.path.join(debug_dir, f"{video_name}{face_suffix}_first_frame_transformed.jpg"),
             first_frame_transformed,
         )
 
@@ -483,7 +493,7 @@ def process_videos(
 
 # Run processing
 process_videos(
-    "M:\\Photos\\Project\\Processed_Hadi\\01_FaceVideos_Trimmed",
+    "M:\\Photos\\Project\\Processed_Tamim\\01_FaceVideo_Trimmed",
     "08_output_videos",
     "99_debug_frames",
     "92_failed_videos",
