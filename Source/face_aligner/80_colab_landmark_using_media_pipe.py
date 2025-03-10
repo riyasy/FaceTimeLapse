@@ -137,7 +137,7 @@ def main():
                     print(f"No faces detected in {image_file}")
 
                 # Save the processed image
-                output_path = os.path.join(output_folder, f"processed_{image_file}")
+                output_path = os.path.join(output_folder, f"{image_file}")
                 cv2.imwrite(output_path, cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
                 print(f"Saved processed image to: {output_path}")
 

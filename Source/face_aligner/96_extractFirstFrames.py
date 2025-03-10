@@ -64,4 +64,4 @@ def process_videos(input_dir="01_input_videos_vfr", output_dir="99_debug_frames"
         print(f"{status} {os.path.basename(video_path)} - First frame saved: {success}")
 
 # Run processing
-process_videos("01_input_videos_vfr", "99_debug_frames")
+process_videos("M:\\Photos\Project\\Processed_Hadi\\01_FaceVideos_Trimmed", "99_debug_frames")

@@ -20,30 +20,35 @@ PADDING_COLOR = (57, 255, 20)
 # Debug flag to control image writing
 DEBUG = False  # Set to True to enable debug image writing
 
+
 # Load CSV data into a dictionary
 def load_csv_data(csv_path="80_media_pipe_data/media_pipe_output_merged.csv"):
     """Loads eye center data from CSV into a dict: filename -> list of (face_num, left_eye, right_eye).
     Handles 'N/A' as None for eye coordinates."""
     csv_data = {}
     try:
-        with open(csv_path, newline='') as csvfile:
+        with open(csv_path, newline="") as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
-                filename = row['input_file_name']
-                face_num = int(row['face_number'])
-                
+                filename = row["input_file_name"]
+                face_num = int(row["face_number"])
+
                 # Handle iris_left_value
-                if row['iris_left_value'].strip('"') == 'N/A':
+                if row["iris_left_value"].strip('"') == "N/A":
                     left_eye = None
                 else:
-                    left_eye = tuple(map(int, row['iris_left_value'].strip('"').split(',')))
-                
+                    left_eye = tuple(
+                        map(int, row["iris_left_value"].strip('"').split(","))
+                    )
+
                 # Handle iris_right_value
-                if row['iris_right_value'].strip('"') == 'N/A':
+                if row["iris_right_value"].strip('"') == "N/A":
                     right_eye = None
                 else:
-                    right_eye = tuple(map(int, row['iris_right_value'].strip('"').split(',')))
-                
+                    right_eye = tuple(
+                        map(int, row["iris_right_value"].strip('"').split(","))
+                    )
+
                 if filename not in csv_data:
                     csv_data[filename] = []
                 csv_data[filename].append((face_num, left_eye, right_eye))
@@ -54,6 +59,7 @@ def load_csv_data(csv_path="80_media_pipe_data/media_pipe_output_merged.csv"):
         print(f"Error reading CSV: {e}")
         return {}
     return csv_data
+
 
 # === Transformation Matrix Function ===
 def compute_transformation_matrix(frame, left_eye, right_eye, target_eye_ratio=0.08):
@@ -94,6 +100,7 @@ def compute_transformation_matrix(frame, left_eye, right_eye, target_eye_ratio=0
 
     return M, M2
 
+
 # === Video Processing Functions ===
 def initialize_video_reader(video_path):
     """Initializes video capture and reads first frame."""
@@ -108,6 +115,7 @@ def initialize_video_reader(video_path):
         cap.release()
         return None, None, None
     return cap, fps, first_frame
+
 
 def process_frames(cap, out, M, M2, debug_dir, video_name, face_suffix):
     """Processes all frames with transformation, using M2 for background and M for foreground."""
@@ -166,6 +174,7 @@ def process_frames(cap, out, M, M2, debug_dir, video_name, face_suffix):
 
     return frames_read, frames_written
 
+
 def add_audio_to_video(temp_video_path, video_path, final_output_path):
     """Adds audio from original video to processed video using FFmpeg."""
     try:
@@ -195,7 +204,99 @@ def add_audio_to_video(temp_video_path, video_path, final_output_path):
         print(f"Error adding audio to {final_output_path}: {e}")
         return False
 
-def process_video(video_path, output_path, debug_dir, csv_data, face_num, left_eye, right_eye, face_suffix=""):
+
+def just_save_first_frame(
+    video_path,
+    output_path,
+    debug_dir,
+    csv_data,
+    face_num,
+    left_eye,
+    right_eye,
+    face_suffix="",
+):
+    """Process first video frame and save as image using CSV eye data with foreground/background composition."""
+    cap, fps, first_frame = initialize_video_reader(video_path)
+    if cap is None:
+        return False
+
+    video_name = os.path.splitext(os.path.basename(video_path))[0]
+    output_image_path = os.path.join(
+        os.path.dirname(output_path), f"{video_name}{face_suffix}.jpg"
+    )
+
+    M, M2 = compute_transformation_matrix(first_frame, left_eye, right_eye)
+    if M is None or M2 is None:
+        print(
+            f"Error computing transformation for {video_path} face {face_num} (eye data missing or invalid), skipping."
+        )
+        cap.release()
+        return False
+
+    # Process only the first frame with foreground/background composition
+    try:
+        # Precompute mask from first frame
+        foreground = cv2.warpAffine(
+            first_frame,
+            M,
+            (OUTPUT_WIDTH, OUTPUT_HEIGHT),
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=PADDING_COLOR,
+        )
+        mask = (foreground == PADDING_COLOR).all(axis=2).astype(np.uint8) * 255
+        mask = cv2.merge([mask, mask, mask])
+
+        # Apply transformations to first frame
+        background = cv2.warpAffine(first_frame, M2, (OUTPUT_WIDTH, OUTPUT_HEIGHT))
+        background = cv2.GaussianBlur(background, (41, 41), 0)
+        foreground = cv2.warpAffine(
+            first_frame,
+            M,
+            (OUTPUT_WIDTH, OUTPUT_HEIGHT),
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=PADDING_COLOR,
+        )
+        processed_frame = np.where(mask == 0, foreground, background)
+
+        # Save the processed frame as an image
+        success = cv2.imwrite(output_image_path, processed_frame)
+
+        if success:
+            print(f"Saved processed first frame: {output_image_path}")
+
+            # Optional debug output
+            if debug_dir and processed_frame is not None:
+                debug_path = os.path.join(
+                    debug_dir, f"{video_name}{face_suffix}_first_frame_transformed.jpg"
+                )
+                cv2.imwrite(debug_path, processed_frame)
+
+            cap.release()
+            return True
+        else:
+            print(f"Error: Failed to save image at {output_image_path}")
+            cap.release()
+            return False
+
+    except Exception as e:
+        print(f"Error processing frame for {output_image_path}: {str(e)}")
+        cap.release()
+        return False
+
+
+def process_video(
+    video_path,
+    output_path,
+    debug_dir,
+    csv_data,
+    face_num,
+    left_eye,
+    right_eye,
+    face_suffix="",
+):
+    # just_save_first_frame(video_path, output_path, debug_dir, csv_data, face_num, left_eye, right_eye, face_suffix)
+    # return True
+
     """Main video processing function using CSV eye data."""
     cap, fps, first_frame = initialize_video_reader(video_path)
     if cap is None:
@@ -211,7 +312,9 @@ def process_video(video_path, output_path, debug_dir, csv_data, face_num, left_e
 
     M, M2 = compute_transformation_matrix(first_frame, left_eye, right_eye)
     if M is None or M2 is None:
-        print(f"Error computing transformation for {video_path} face {face_num} (eye data missing or invalid), skipping.")
+        print(
+            f"Error computing transformation for {video_path} face {face_num} (eye data missing or invalid), skipping."
+        )
         cap.release()
         return False
 
@@ -254,6 +357,7 @@ def process_video(video_path, output_path, debug_dir, csv_data, face_num, left_e
             os.remove(temp_video_path)
         return False
 
+
 def copy_to_failed_videos(video_path, failed_dir):
     """Copies the input video to the failed_videos directory."""
     try:
@@ -262,6 +366,7 @@ def copy_to_failed_videos(video_path, failed_dir):
         print(f"Copied failed video to: {failed_path}")
     except Exception as e:
         print(f"Error copying {video_path} to failed_videos: {e}")
+
 
 def process_single_video(video_path, output_dir, debug_dir, failed_dir, csv_data):
     """Processes a single video using CSV data and returns result."""
@@ -299,7 +404,14 @@ def process_single_video(video_path, output_dir, debug_dir, failed_dir, csv_data
     for face_num, left_eye, right_eye in faces_to_process:
         face_suffix = f"_face{face_num:02d}"
         success = process_video(
-            video_path, output_path, debug_dir, csv_data, face_num, left_eye, right_eye, face_suffix
+            video_path,
+            output_path,
+            debug_dir,
+            csv_data,
+            face_num,
+            left_eye,
+            right_eye,
+            face_suffix,
         )
         if success:
             processed_count += 1
@@ -310,8 +422,15 @@ def process_single_video(video_path, output_dir, debug_dir, failed_dir, csv_data
 
     return video_path, result
 
+
 # Parallelized process_videos
-def process_videos(video_dir, output_dir, debug_dir, failed_dir="failed_videos", csv_path="80_media_pipe_data/media_pipe_output_merged.csv"):
+def process_videos(
+    video_dir,
+    output_dir,
+    debug_dir,
+    failed_dir="failed_videos",
+    csv_path="80_media_pipe_data/media_pipe_output_merged.csv",
+):
     """Processes all videos in the folder with multithreading using CSV data."""
     clear_directory(output_dir)
     clear_directory(debug_dir)
@@ -335,7 +454,12 @@ def process_videos(video_dir, output_dir, debug_dir, failed_dir="failed_videos",
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         future_to_video = {
             executor.submit(
-                process_single_video, video_path, output_dir, debug_dir, failed_dir, csv_data
+                process_single_video,
+                video_path,
+                output_dir,
+                debug_dir,
+                failed_dir,
+                csv_data,
             ): video_path
             for video_path in video_tasks
         }
@@ -356,7 +480,11 @@ def process_videos(video_dir, output_dir, debug_dir, failed_dir="failed_videos",
             f"{status} {os.path.basename(video_path)} - Faces detected: {stats['detected']}, Processed: {stats['processed']}"
         )
 
+
 # Run processing
 process_videos(
-    "F:\_FaceMovie2_Tamim", "08_output_videos", "99_debug_frames", "92_failed_videos"
+    "M:\\Photos\\Project\\Processed_Hadi\\01_FaceVideos_Trimmed",
+    "08_output_videos",
+    "99_debug_frames",
+    "92_failed_videos",
 )
