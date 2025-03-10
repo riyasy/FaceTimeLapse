@@ -296,8 +296,8 @@ def process_video(
     right_eye,
     face_suffix="",
 ):
-    just_save_first_frame(video_path, output_path, debug_dir, csv_data, face_num, left_eye, right_eye, face_suffix)
-    return True
+    # just_save_first_frame(video_path, output_path, debug_dir, csv_data, face_num, left_eye, right_eye, face_suffix)
+    # return True
 
     """Main video processing function using CSV eye data."""
     cap, fps, first_frame = initialize_video_reader(video_path)
