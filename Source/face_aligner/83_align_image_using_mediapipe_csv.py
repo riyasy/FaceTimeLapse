@@ -6,7 +6,7 @@ import math
 import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from util import clear_directory  # Assuming this is your utility function
+from util import clear_directory, get_eye_to_screen_ratio, get_filtered_videos  # Assuming this is your utility function
 
 # Configurable constants
 OUTPUT_WIDTH = 4096
@@ -62,7 +62,7 @@ def load_csv_data(csv_path="80_media_pipe_data/media_pipe_output_merged.csv"):
 
 
 # Compute transformation matrix
-def compute_transformation_matrix(image, left_eye, right_eye, target_eye_ratio=0.08):
+def compute_transformation_matrix(image, left_eye, right_eye, target_eye_ratio):
     """Computes transformation matrices using provided eye center points."""
     h, w = image.shape[:2]
 
@@ -117,7 +117,7 @@ def process_image_to_video(
         os.path.dirname(output_path), f"{image_name}{face_suffix}.mp4"
     )
 
-    M, M2 = compute_transformation_matrix(image, left_eye, right_eye)
+    M, M2 = compute_transformation_matrix(image, left_eye, right_eye, get_eye_to_screen_ratio(image_name))
     if M is None or M2 is None:
         print(
             f"Error computing transformation for {image_path} face {face_num}, skipping."
@@ -245,7 +245,7 @@ def process_images(
     processing_results = {}
     image_tasks = []
 
-    for image in sorted(os.listdir(image_dir)):
+    for image in sorted(get_filtered_videos(image_dir)):
         if not image.lower().endswith((".jpg", ".jpeg", ".png")):
             continue
         image_path = os.path.join(image_dir, image)

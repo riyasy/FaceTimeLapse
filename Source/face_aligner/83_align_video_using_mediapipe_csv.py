@@ -7,7 +7,7 @@ import shutil
 import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from util import clear_directory  # Assuming this is your utility function
+from util import clear_directory, get_eye_to_screen_ratio, get_filtered_videos  # Assuming this is your utility function
 
 # Configurable output resolution constants
 OUTPUT_WIDTH = 4096
@@ -62,7 +62,7 @@ def load_csv_data(csv_path="80_media_pipe_data/media_pipe_output_merged.csv"):
 
 
 # === Transformation Matrix Function ===
-def compute_transformation_matrix(frame, left_eye, right_eye, target_eye_ratio=0.08):
+def compute_transformation_matrix(frame, left_eye, right_eye, target_eye_ratio):
     """Computes transformation matrices using provided eye center points."""
     h, w = frame.shape[:2]
 
@@ -235,7 +235,7 @@ def just_save_first_frame(
         os.path.dirname(output_path), f"{video_name}{face_suffix}.jpg"
     )
 
-    M, M2 = compute_transformation_matrix(first_frame, left_eye, right_eye)
+    M, M2 = compute_transformation_matrix(first_frame, left_eye, right_eye, get_eye_to_screen_ratio(video_name))
     if M is None or M2 is None:
         print(
             f"Error computing transformation for {video_path} face {face_num} (eye data missing or invalid), skipping."
@@ -273,14 +273,6 @@ def just_save_first_frame(
 
         if success:
             print(f"Saved processed first frame: {output_image_path}")
-
-            # Optional debug output
-            if debug_dir and processed_frame is not None:
-                debug_path = os.path.join(
-                    debug_dir, f"{video_name}{face_suffix}_first_frame_transformed.jpg"
-                )
-                cv2.imwrite(debug_path, processed_frame)
-
             cap.release()
             return True
         else:
@@ -304,8 +296,8 @@ def process_video(
     right_eye,
     face_suffix="",
 ):
-    # just_save_first_frame(video_path, output_path, debug_dir, csv_data, face_num, left_eye, right_eye, face_suffix)
-    # return True
+    just_save_first_frame(video_path, output_path, debug_dir, csv_data, face_num, left_eye, right_eye, face_suffix)
+    return True
 
     """Main video processing function using CSV eye data."""
     cap, fps, first_frame = initialize_video_reader(video_path)
@@ -320,7 +312,7 @@ def process_video(
         os.path.dirname(output_path), f"{video_name}{face_suffix}.mp4"
     )
 
-    M, M2 = compute_transformation_matrix(first_frame, left_eye, right_eye)
+    M, M2 = compute_transformation_matrix(first_frame, left_eye, right_eye, get_eye_to_screen_ratio(video_name))
     if M is None or M2 is None:
         print(
             f"Error computing transformation for {video_path} face {face_num} (eye data missing or invalid), skipping."
@@ -455,7 +447,7 @@ def process_videos(
     processing_results = {}
     video_tasks = []
 
-    for video in sorted(os.listdir(video_dir)):
+    for video in sorted(get_filtered_videos(video_dir)):
         if not video.lower().endswith((".mp4", ".mov", ".avi")):
             continue
         video_path = os.path.join(video_dir, video)
@@ -493,7 +485,7 @@ def process_videos(
 
 # Run processing
 process_videos(
-    "M:\\Photos\\Project\\Processed_Tamim\\01_FaceVideo_Trimmed",
+    "/Volumes/BigTrunk/Photos/Project/Processed_Hadi/01_FaceVideos_Trimmed",
     "08_output_videos",
     "99_debug_frames",
     "92_failed_videos",
