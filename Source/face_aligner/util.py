@@ -1,105 +1,84 @@
-import datetime
 import os
 import shutil
+from datetime import datetime
 
-from datetime import datetime  
+# Eye-to-screen ratios keyed by year/period.
+# This ratio controls how much of the output width the inter-eye distance spans.
+# Larger value → face appears bigger in the output frame.
+EYE_RATIO_BY_YEAR = {
+    2020: 0.100,
+    2021: 0.095,
+    2022: 0.085,
+}
+EYE_RATIO_2023_JAN_MAY = 0.080   # First half of 2023
+EYE_RATIO_DEFAULT      = 0.075   # All other dates
 
-def get_filtered_videos(video_dir, date_from="20200101_000000", date_to="20290101_000000"):
+# Date-range filter defaults used by get_filtered_videos()
+DEFAULT_DATE_FROM = "20200101_000000"
+DEFAULT_DATE_TO   = "20290101_000000"
+
+
+def get_filtered_videos(video_dir, date_from=DEFAULT_DATE_FROM, date_to=DEFAULT_DATE_TO):
     """
-    Returns a sorted list of video files from video_dir that:
-    1. Follow the format YYYYMMDD_HHMMSS
-    2. Fall between date_from and date_to (inclusive)
-    
-    Args:
-        video_dir (str): Directory containing video files
-        date_from (str): Start date in format YYYYMMDD_HHMMSS
-        date_to (str): End date in format YYYYMMDD_HHMMSS
-    
-    Returns:
-        list: Sorted list of filtered filenames
+    Returns a sorted list of filenames in video_dir whose names begin with
+    a timestamp matching 'YYYYMMDD_HHMMSS' and fall within [date_from, date_to].
+
+    Files that don't follow the naming convention are silently skipped.
     """
-    # Convert boundary dates to datetime objects for comparison
     try:
         dt_from = datetime.strptime(date_from, "%Y%m%d_%H%M%S")
-        dt_to = datetime.strptime(date_to, "%Y%m%d_%H%M%S")
+        dt_to   = datetime.strptime(date_to,   "%Y%m%d_%H%M%S")
     except ValueError as e:
-        raise ValueError("Invalid date format in date_from or date_to. Use YYYYMMDD_HHMMSS format") from e
+        raise ValueError("date_from / date_to must be in YYYYMMDD_HHMMSS format") from e
 
-    filtered_files = []
-    
-    # Get all files in directory
+    filtered = []
     for filename in os.listdir(video_dir):
-        # Check if filename matches the pattern YYYYMMDD_HHMMSS
-        if len(filename) < 15:  # Minimum length for YYYYMMDD_HHMMSS
-            continue
-            
-        date_part = filename[:15]  # Extract YYYYMMDD_HHMMSS part
-        
+        if len(filename) < 15:
+            continue  # Too short to contain a valid timestamp
+
         try:
-            # Try to parse the date from filename
-            file_dt = datetime.strptime(date_part, "%Y%m%d_%H%M%S")
-            
-            # Check if file date falls within range
+            # The first 15 characters encode YYYYMMDD_HHMMSS
+            file_dt = datetime.strptime(filename[:15], "%Y%m%d_%H%M%S")
             if dt_from <= file_dt <= dt_to:
-                filtered_files.append(filename)
-                
+                filtered.append(filename)
         except ValueError:
-            # Skip files that don't match the date format
-            continue
-    
-    # Return sorted list
-    return sorted(filtered_files)
+            continue  # Filename doesn't start with a recognised timestamp
+
+    return sorted(filtered)
+
 
 def get_eye_to_screen_ratio(filename):
     """
-    Returns an eye distance to screen ratio based on the date in the filename.
-    
-    Args:
-        filename (str): Filename in format YYYYMMDD_HHMMSS...
-    
-    Returns:
-        float: Eye distance to screen ratio
-    """
-    # Default ratio for invalid formats or other dates
-    DEFAULT_RATIO = 0.075
-    
-    # Check if filename has minimum length and extract date part
-    if len(filename) < 15:
-        return DEFAULT_RATIO
-        
-    date_part = filename[:15]  # YYYYMMDD_HHMMSS
-    
-    try:
-        # Parse the date from filename
-        file_dt = datetime.strptime(date_part, "%Y%m%d_%H%M%S")
-        year = file_dt.year
-        month = file_dt.month
-        
-        # 2020 or 2021: ratio 0.1
-        if year == 2020:
-            return 0.1
-        
-        if year == 2021:
-            return 0.095
-                   
+    Returns the eye-distance-to-output-width ratio for a given filename.
 
-        if year == 2022:
-            return 0.085
-            
-        # 2023 Jan-May: ratio 0.08
+    The ratio is chosen based on the date embedded in the filename
+    (format: YYYYMMDD_HHMMSS…) because the subject's camera distance
+    varied across recording sessions. Returns DEFAULT if parsing fails.
+    """
+    if len(filename) < 15:
+        return EYE_RATIO_DEFAULT
+
+    try:
+        file_dt = datetime.strptime(filename[:15], "%Y%m%d_%H%M%S")
+        year, month = file_dt.year, file_dt.month
+
+        if year in EYE_RATIO_BY_YEAR:
+            return EYE_RATIO_BY_YEAR[year]
+
         if year == 2023 and 1 <= month <= 5:
-            return 0.08
-            
-        # Any other date: ratio 0.08
-        return DEFAULT_RATIO
-        
+            return EYE_RATIO_2023_JAN_MAY
+
+        return EYE_RATIO_DEFAULT
+
     except ValueError:
-        # Return default ratio if date parsing fails
-        return DEFAULT_RATIO
-    
+        return EYE_RATIO_DEFAULT  # Filename doesn't start with a valid timestamp
+
 
 def clear_directory(directory):
-    """Removes all files and subdirectories in the specified directory."""
+    """
+    Empties all contents of directory (files and sub-folders).
+    Creates the directory if it doesn't already exist.
+    """
     if os.path.exists(directory):
         for item in os.listdir(directory):
             item_path = os.path.join(directory, item)
@@ -110,7 +89,7 @@ def clear_directory(directory):
                     shutil.rmtree(item_path)
             except Exception as e:
                 print(f"Error clearing {item_path}: {e}")
-        print(f"Cleared directory: {directory}")
+        print(f"Cleared: {directory}")
     else:
         os.makedirs(directory)
-        print(f"Created directory: {directory}")
+        print(f"Created: {directory}")

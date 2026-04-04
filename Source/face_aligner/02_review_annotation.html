@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eye Landmark Adjuster</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; background: #1e1e1e; color: #fff; }
+        .toolbar { padding: 15px 20px; background: #2d2d2d; border-bottom: 1px solid #444; display: flex; gap: 20px; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 10;}
+        .toolbar-group { display: flex; flex-direction: column; gap: 5px; }
+        .toolbar-group label { font-size: 12px; color: #aaa; }
+        .btn { padding: 8px 16px; cursor: pointer; background: #007acc; color: white; border: none; border-radius: 4px; font-weight: bold; transition: background 0.2s;}
+        .btn:hover { background: #005f9e; }
+        .btn.active { background: #d83b01; }
+        .main-container { display: flex; flex: 1; overflow: hidden; }
+        .sidebar { width: 300px; background: #252526; border-right: 1px solid #444; overflow-y: auto; display: flex; flex-direction: column;}
+        .sidebar-header { padding: 10px; background: #333; font-weight: bold; border-bottom: 1px solid #444;}
+        .file-list { list-style: none; padding: 0; margin: 0; }
+        .file-list li { padding: 0; cursor: pointer; border-bottom: 1px solid #333; font-size: 13px; word-break: break-all; position: relative; }
+        .file-list li:hover { background: #2a2d2e; }
+        .file-list li.active { background: #37373d; border-left: 4px solid #007acc; }
+        .file-list li .face-label { display: block; padding: 8px 32px 8px 15px; }
+        .file-list li.active .face-label { padding-left: 11px; }
+        .file-list li .img-name { font-size: 11px; color: #888; display: block; padding: 4px 15px 0; }
+        .file-list li.active .img-name { padding-left: 11px; }
+        .delete-btn { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+            background: transparent; border: none; color: #555; cursor: pointer;
+            font-size: 13px; padding: 3px 6px; border-radius: 3px; line-height: 1;
+            opacity: 0; transition: opacity 0.15s, background 0.15s; }
+        .file-list li:hover .delete-btn { opacity: 1; }
+        .file-list li.active .delete-btn { opacity: 0.6; }
+        .file-list li:hover .delete-btn:hover { background: rgba(220,50,50,0.25); color: #ff6b6b; opacity: 1; }
+        .canvas-container { flex: 1; position: relative; overflow: hidden; background: #111; display: flex; justify-content: center; align-items: center;}
+        canvas { cursor: grab; }
+        canvas:active { cursor: grabbing; }
+        .instructions { position: absolute; bottom: 20px; left: 20px; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 5px; font-size: 13px; pointer-events: none; line-height: 1.5;}
+    </style>
+</head>
+<body>
+
+<div class="toolbar">
+    <div class="toolbar-group">
+        <label>1. Upload CSV</label>
+        <input type="file" id="csvInput" accept=".csv" />
+    </div>
+    <div class="toolbar-group">
+        <label>2. Select Image Folder</label>
+        <button id="folderBtn" class="btn" style="background: #5a4fcf;">📁 Choose Folder</button>
+        <span id="folderStatus" style="font-size:11px; color:#aaa;"></span>
+    </div>
+    <div style="flex: 1;"></div>
+    <div class="toolbar-group">
+        <label>Face Zoom</label>
+        <div style="display:flex; align-items:center; gap:8px;">
+            <button id="faceZoomBtn" class="btn" style="background:#6c757d;">Off</button>
+            <input type="range" id="zoomRatioSlider" min="3" max="10" value="5" step="1"
+                style="width:90px; accent-color:#007acc;" title="Eyes span 1/N of width">
+            <span id="zoomRatioLabel" style="font-size:12px; color:#ccc; min-width:28px;">1/5</span>
+        </div>
+    </div>
+    <div class="toolbar-group">
+        <label>Tool Mode</label>
+        <button id="adjustBtn" class="btn">Mode: Pan / Zoom</button>
+    </div>
+    <div class="toolbar-group">
+        <label>Export Options</label>
+        <div style="display:flex; align-items:center; gap:5px; height:33px;">
+            <input type="checkbox" id="removeExtCheck" />
+            <label for="removeExtCheck" style="color:#ccc; font-size:12px; cursor:pointer; padding-top:2px;">Strip Extensions</label>
+        </div>
+    </div>
+    <div class="toolbar-group">
+        <label>Save Changes</label>
+        <button id="exportBtn" class="btn" style="background: #28a745;">Export Adjusted CSV</button>
+    </div>
+</div>
+
+<div class="main-container">
+    <div class="sidebar">
+        <div class="sidebar-header">Images</div>
+        <ul id="fileList" class="file-list"></ul>
+    </div>
+    <div class="canvas-container" id="canvasContainer">
+        <canvas id="mainCanvas"></canvas>
+        <div class="instructions">
+            • <b>Scroll</b> to Zoom in/out<br>
+            • <b>Click & Drag</b> to Pan image<br>
+            • Click <b>Tool Mode</b> to enable dragging eyes<br>
+            <span style="color: #ff9d00;">• <b>N/A Faces:</b> Spawns markers in the center.</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- State ---
+    // Format: { "baseName": { originalName: "filename.jpg", faces: [ { faceNum, left: {x, y}, right: {x, y} } ] } }
+    let csvData = {};
+    let imageFiles = {}; // Format: { "baseName": { handle: FileSystemFileHandle, originalName: "filename.jpg" } }
+    let currentBaseName = null;
+    let currentFaceIndex = 0;      // which face in csvData[currentBaseName].faces is selected
+    let currentImageElement = null;
+
+    // --- Canvas State ---
+    let scale = 1;
+    let offsetX = 0;
+    let offsetY = 0;
+    let isAdjustMode = false;
+    let isFaceZoom = false;        // whether face-zoom is active
+    let zoomRatioN = 5;            // eyes span 1/N of canvas width
+    let currentRotation = 0;       // radians; rotates canvas so eyes are horizontal
+    let rotCenterX = 0;            // pivot point in image space (eye midpoint X)
+    let rotCenterY = 0;            // pivot point in image space (eye midpoint Y)
+
+    // --- Drag State ---
+    let isDraggingPan = false;
+    let dragTarget = null; // Stores {faceIndex: 0, eye: 'left'}
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+
+    // --- DOM Elements ---
+    const canvas = document.getElementById('mainCanvas');
+    const ctx = canvas.getContext('2d');
+    const container = document.getElementById('canvasContainer');
+    const adjustBtn = document.getElementById('adjustBtn');
+    const fileList = document.getElementById('fileList');
+
+    // --- Helper: Get Base Name ---
+    function getBaseName(filename) {
+        const lastDot = filename.lastIndexOf('.');
+        return lastDot !== -1 ? filename.substring(0, lastDot) : filename;
+    }
+
+    // --- Helper: Robust CSV Line Parser ---
+    function parseCSVLine(text) {
+        let ret = [], keep = false, token = '';
+        for (let i = 0; i < text.length; i++) {
+            let c = text[i];
+            if (c === '"') { keep = !keep; continue; }
+            if (c === ',' && !keep) { ret.push(token); token = ''; continue; }
+            token += c;
+        }
+        ret.push(token);
+        return ret.map(t => t.trim());
+    }
+
+    // --- Helper: Standard Coordinate Extractor ---
+    function decodeCoordinates(rawStr) {
+        if (!rawStr || rawStr === 'N/A') return null;
+        const matches = rawStr.match(/-?\d+(\.\d+)?/g);
+        if (matches && matches.length >= 2) {
+            return { x: parseFloat(matches[0]), y: parseFloat(matches[1]) };
+        }
+        return null;
+    }
+
+    // --- Helper: Encode coordinates back to standard "X,Y" format ---
+    function encodeCoordinates(x, y) {
+        return `"${Math.round(x)},${Math.round(y)}"`;
+    }
+
+    // --- CSV Parsing ---
+    document.getElementById('csvInput').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            const lines = evt.target.result.split('\n');
+            csvData = {};
+            for (let i = 1; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                
+                const cols = parseCSVLine(lines[i]);
+                if (cols.length >= 4) {
+                    const rawFilename = cols[0];
+                    const baseName = getBaseName(rawFilename);
+                    const faceNum = cols[1];
+
+                    if (!csvData[baseName]) {
+                        csvData[baseName] = { originalName: rawFilename, faces: [] };
+                    }
+
+                    csvData[baseName].faces.push({
+                        faceNum: faceNum,
+                        left:  decodeCoordinates(cols[2]),
+                        right: decodeCoordinates(cols[3])
+                    });
+                }
+            }
+            updateSidebar();
+        };
+        reader.readAsText(file);
+    });
+
+    // --- Image Folder Parsing (File System Access API — no bulk upload) ---
+    document.getElementById('folderBtn').addEventListener('click', async () => {
+        try {
+            const dirHandle = await window.showDirectoryPicker();
+            imageFiles = {};
+            let count = 0;
+            for await (const [name, handle] of dirHandle.entries()) {
+                if (handle.kind === 'file' && /\.(jpe?g|png|gif|webp|bmp)$/i.test(name)) {
+                    const baseName = getBaseName(name);
+                    imageFiles[baseName] = { handle, originalName: name };
+                    count++;
+                }
+            }
+            document.getElementById('folderStatus').textContent = `${count} image(s) found`;
+            updateSidebar();
+        } catch (err) {
+            if (err.name !== 'AbortError') console.error('Folder picker error:', err);
+        }
+    });
+
+    // --- Sidebar Update (one entry per face) ---
+    function updateSidebar() {
+        fileList.innerHTML = '';
+        const allFiles = new Set([...Object.keys(csvData), ...Object.keys(imageFiles)]);
+
+        Array.from(allFiles).sort().forEach(baseName => {
+            if (!imageFiles[baseName] || !csvData[baseName]) return;
+
+            const faces = csvData[baseName].faces;
+            const displayFilename = imageFiles[baseName].originalName;
+
+            faces.forEach((face, fIdx) => {
+                const li = document.createElement('li');
+
+                // Filename label above each entry
+                const imgName = document.createElement('span');
+                imgName.className = 'img-name';
+                imgName.textContent = displayFilename;
+                li.appendChild(imgName);
+
+                const faceLabel = document.createElement('span');
+                faceLabel.className = 'face-label';
+                faceLabel.textContent = '\u25b6 Face ' + face.faceNum;
+                li.appendChild(faceLabel);
+
+                // Delete button — only shown when image has more than one face
+                if (faces.length > 1) {
+                    const delBtn = document.createElement('button');
+                    delBtn.className = 'delete-btn';
+                    delBtn.title = 'Delete this face entry';
+                    delBtn.textContent = '\u2715';
+                    delBtn.onclick = (e) => { e.stopPropagation(); deleteFace(baseName, fIdx); };
+                    li.appendChild(delBtn);
+                }
+
+                li.dataset.baseName = baseName;
+                li.dataset.faceIndex = fIdx;
+                li.onclick = () => loadTargetFace(baseName, fIdx, li);
+                fileList.appendChild(li);
+            });
+        });
+    }
+
+    // --- Delete a face entry (min 1 per image enforced) ---
+    function deleteFace(baseName, faceIndex) {
+        if (!csvData[baseName] || csvData[baseName].faces.length <= 1) return;
+        csvData[baseName].faces.splice(faceIndex, 1);
+
+        const newFaceCount = csvData[baseName].faces.length;
+        const newFaceIndex = Math.min(faceIndex, newFaceCount - 1);
+
+        updateSidebar();
+
+        // Navigate to the adjacent face in the same image
+        const items = Array.from(fileList.querySelectorAll('li'));
+        const target = items.find(li =>
+            li.dataset.baseName === baseName && parseInt(li.dataset.faceIndex) === newFaceIndex
+        );
+        if (target) {
+            target.click();
+            target.scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    // --- Load Face (async — reads file on demand, then zooms to face) ---
+    async function loadTargetFace(baseName, faceIndex, liElement) {
+        document.querySelectorAll('.file-list li').forEach(el => el.classList.remove('active'));
+        liElement.classList.add('active');
+
+        const sameImage = (baseName === currentBaseName);
+        currentBaseName = baseName;
+        currentFaceIndex = faceIndex;
+
+        // If the image is already loaded, just re-apply zoom and redraw
+        if (sameImage && currentImageElement) {
+            if (isFaceZoom) applyFaceZoom(faceIndex);
+            draw();
+            return;
+        }
+
+        const handle = imageFiles[baseName].handle;
+        let objectUrl;
+        try {
+            const file = await handle.getFile();
+            objectUrl = URL.createObjectURL(file);
+        } catch (err) {
+            console.error('Could not read image file:', err);
+            return;
+        }
+
+        const img = new Image();
+        img.onload = () => {
+            if (currentImageElement && currentImageElement._objectUrl) {
+                URL.revokeObjectURL(currentImageElement._objectUrl);
+            }
+            img._objectUrl = objectUrl;
+            currentImageElement = img;
+
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+
+            // Initialize N/A coordinates to center
+            const faces = csvData[currentBaseName].faces;
+            if (faces) {
+                faces.forEach((face, index) => {
+                    if (!face.left || !face.right) {
+                        const yOffset = index * 40;
+                        face.left  = { x: (img.width / 2) - 60, y: (img.height / 2) + yOffset };
+                        face.right = { x: (img.width / 2) + 60, y: (img.height / 2) + yOffset };
+                    }
+                });
+            }
+
+            if (isFaceZoom) {
+                applyFaceZoom(faceIndex);
+            } else {
+                // Fit whole image
+                const scaleX = canvas.width / img.width;
+                const scaleY = canvas.height / img.height;
+                scale = Math.min(scaleX, scaleY) * 0.9;
+                offsetX = (canvas.width  - img.width  * scale) / 2;
+                offsetY = (canvas.height - img.height * scale) / 2;
+            }
+
+            draw();
+        };
+        img.src = objectUrl;
+    }
+
+    // --- Face Zoom: center + rotate so eyes are exactly horizontal ---
+    function applyFaceZoom(faceIndex) {
+        if (!currentImageElement || !currentBaseName) return;
+        const faces = csvData[currentBaseName].faces;
+        if (!faces || !faces[faceIndex]) return;
+        const face = faces[faceIndex];
+        if (!face.left || !face.right) return;
+
+        canvas.width  = container.clientWidth;
+        canvas.height = container.clientHeight;
+
+        const cx = (face.left.x + face.right.x) / 2;
+        const cy = (face.left.y + face.right.y) / 2;
+        const eyeDist = Math.hypot(face.right.x - face.left.x, face.right.y - face.left.y);
+
+        // Rotation: negate the angle of the left→right vector.
+        // atan2(dy, dx) gives the tilt of the eye line; negating it levels them.
+        // When right.x > left.x (normal face), left eye stays on the left after rotation.
+        // When right.x < left.x (mirrored/upside-down), rotation ~π flips it upright.
+        currentRotation = -Math.atan2(
+            face.right.y - face.left.y,
+            face.right.x - face.left.x
+        );
+        rotCenterX = cx;
+        rotCenterY = cy;
+
+        // Scale so eye distance = canvas.width / N  (minimum safeguard: eyeDist > 1)
+        const targetEyePx = canvas.width / zoomRatioN;
+        scale = eyeDist > 1
+            ? targetEyePx / eyeDist
+            : Math.min(canvas.width / currentImageElement.width, canvas.height / currentImageElement.height) * 0.9;
+
+        // Center the eye midpoint on the canvas
+        offsetX = canvas.width  / 2 - cx * scale;
+        offsetY = canvas.height / 2 - cy * scale;
+    }
+
+    // --- Helper: map canvas mouse coords → original image coords (handles rotation) ---
+    function canvasToImage(mouseX, mouseY) {
+        // 1. Undo pan + scale
+        let ix = (mouseX - offsetX) / scale;
+        let iy = (mouseY - offsetY) / scale;
+        // 2. Undo rotation around the pivot (rotCenterX, rotCenterY)
+        if (currentRotation !== 0) {
+            const dx  = ix - rotCenterX;
+            const dy  = iy - rotCenterY;
+            const cos = Math.cos(-currentRotation); // inverse angle
+            const sin = Math.sin(-currentRotation);
+            ix = rotCenterX + dx * cos - dy * sin;
+            iy = rotCenterY + dx * sin + dy * cos;
+        }
+        return { x: ix, y: iy };
+    }
+
+    // --- Draw Function ---
+    function draw() {
+        if (!currentImageElement) return;
+
+        // Clear
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+
+        // Apply Pan/Zoom
+        ctx.translate(offsetX, offsetY);
+        ctx.scale(scale, scale);
+
+        // Apply rotation around the eye midpoint (image-space pivot)
+        if (currentRotation !== 0) {
+            ctx.translate(rotCenterX, rotCenterY);
+            ctx.rotate(currentRotation);
+            ctx.translate(-rotCenterX, -rotCenterY);
+        }
+
+        // Draw Image
+        ctx.drawImage(currentImageElement, 0, 0);
+
+        // Draw Dots
+        const faces = csvData[currentBaseName].faces;
+        if (faces) {
+            const dotSize = 8 / scale;
+
+            faces.forEach(face => {
+                if (!face.left || !face.right) return;
+
+                // Faint Connecting Line between left and right eye
+                ctx.beginPath();
+                ctx.moveTo(face.left.x, face.left.y);
+                ctx.lineTo(face.right.x, face.right.y);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.lineWidth = 2 / scale;
+                ctx.stroke();
+
+                // Left Eye (Purple)
+                ctx.fillStyle = '#a020f0';
+                ctx.beginPath();
+                ctx.arc(face.left.x, face.left.y, dotSize, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 1.5 / scale;
+                ctx.stroke();
+
+                // Right Eye (Green)
+                ctx.fillStyle = '#00ff00';
+                ctx.beginPath();
+                ctx.arc(face.right.x, face.right.y, dotSize, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#000';
+                ctx.stroke();
+            });
+        }
+
+        ctx.restore();
+    }
+
+    // --- Interaction Modes ---
+    adjustBtn.addEventListener('click', () => {
+        isAdjustMode = !isAdjustMode;
+        if (isAdjustMode) {
+            adjustBtn.textContent = "Mode: Adjust Eyes";
+            adjustBtn.classList.add('active');
+        } else {
+            adjustBtn.textContent = "Mode: Pan / Zoom";
+            adjustBtn.classList.remove('active');
+        }
+    });
+
+    // --- Canvas Events ---
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+        const newScale = scale * zoomFactor;
+
+        offsetX = mouseX - (mouseX - offsetX) * (newScale / scale);
+        offsetY = mouseY - (mouseY - offsetY) * (newScale / scale);
+        scale = newScale;
+
+        draw();
+    });
+
+    canvas.addEventListener('mousedown', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        
+        lastMouseX = mouseX;
+        lastMouseY = mouseY;
+        
+        dragTarget = null;
+        isDraggingPan = false;
+
+        const { x: imgX, y: imgY } = canvasToImage(mouseX, mouseY);
+
+        if (isAdjustMode && currentBaseName && csvData[currentBaseName]) {
+            const faces = csvData[currentBaseName].faces;
+            const clickThreshold = 15 / scale;
+            let closestDist = Infinity;
+
+            // Find closest eye across all faces
+            faces.forEach((face, idx) => {
+                if (!face.left || !face.right) return;
+
+                const distLeft = Math.hypot(imgX - face.left.x, imgY - face.left.y);
+                const distRight = Math.hypot(imgX - face.right.x, imgY - face.right.y);
+
+                if (distLeft < clickThreshold && distLeft < closestDist) {
+                    closestDist = distLeft;
+                    dragTarget = { faceIndex: idx, eye: 'left' };
+                }
+                if (distRight < clickThreshold && distRight < closestDist) {
+                    closestDist = distRight;
+                    dragTarget = { faceIndex: idx, eye: 'right' };
+                }
+            });
+
+            if (!dragTarget) isDraggingPan = true;
+        } else {
+            isDraggingPan = true;
+        }
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        if (isDraggingPan) {
+            offsetX += (mouseX - lastMouseX);
+            offsetY += (mouseY - lastMouseY);
+            lastMouseX = mouseX;
+            lastMouseY = mouseY;
+            draw();
+        } else if (dragTarget) {
+            const { x: imgX, y: imgY } = canvasToImage(mouseX, mouseY);
+            csvData[currentBaseName].faces[dragTarget.faceIndex][dragTarget.eye].x = imgX;
+            csvData[currentBaseName].faces[dragTarget.faceIndex][dragTarget.eye].y = imgY;
+            draw();
+        }
+    });
+
+    window.addEventListener('mouseup', () => {
+        isDraggingPan = false;
+        dragTarget = null;
+    });
+    
+    // --- Face Zoom Toggle ---
+    document.getElementById('faceZoomBtn').addEventListener('click', () => {
+        isFaceZoom = !isFaceZoom;
+        const btn = document.getElementById('faceZoomBtn');
+        if (isFaceZoom) {
+            btn.textContent = 'On';
+            btn.style.background = '#007acc';
+            if (currentBaseName && currentImageElement) {
+                applyFaceZoom(currentFaceIndex);
+                draw();
+            }
+        } else {
+            btn.textContent = 'Off';
+            btn.style.background = '#6c757d';
+            currentRotation = 0; // reset rotation when face zoom is turned off
+            // Revert to fit-image view
+            if (currentImageElement) {
+                const scaleX = canvas.width / currentImageElement.width;
+                const scaleY = canvas.height / currentImageElement.height;
+                scale = Math.min(scaleX, scaleY) * 0.9;
+                offsetX = (canvas.width  - currentImageElement.width  * scale) / 2;
+                offsetY = (canvas.height - currentImageElement.height * scale) / 2;
+                draw();
+            }
+        }
+    });
+
+    // --- Zoom Ratio Slider ---
+    document.getElementById('zoomRatioSlider').addEventListener('input', function() {
+        zoomRatioN = parseInt(this.value);
+        document.getElementById('zoomRatioLabel').textContent = '1/' + zoomRatioN;
+        if (isFaceZoom && currentBaseName && currentImageElement) {
+            applyFaceZoom(currentFaceIndex);
+            draw();
+        }
+    });
+
+    // Handle Window Resize
+    window.addEventListener('resize', () => {
+        if (currentImageElement) {
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            if (isFaceZoom) applyFaceZoom(currentFaceIndex);
+            draw();
+        }
+    });
+
+    // --- Keyboard Navigation: Up/Down arrow moves between sidebar entries ---
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+        e.preventDefault();
+        const items = Array.from(fileList.querySelectorAll('li'));
+        if (items.length === 0) return;
+        const activeIdx = items.findIndex(li => li.classList.contains('active'));
+        let nextIdx = activeIdx;
+        if (e.key === 'ArrowDown') nextIdx = Math.min(activeIdx + 1, items.length - 1);
+        if (e.key === 'ArrowUp')   nextIdx = Math.max(activeIdx - 1, 0);
+        if (nextIdx !== activeIdx) {
+            items[nextIdx].click();
+            items[nextIdx].scrollIntoView({ block: 'nearest' });
+        }
+    });
+
+    // --- Export CSV ---
+    document.getElementById('exportBtn').addEventListener('click', () => {
+        if (Object.keys(csvData).length === 0) {
+            alert("No data to export!");
+            return;
+        }
+
+        const stripExt = document.getElementById('removeExtCheck').checked;
+        let csvContent = "input_file_name,face_number,iris_left_value,iris_right_value\n";
+
+        for (const [baseName, data] of Object.entries(csvData)) {
+            data.faces.forEach(face => {
+                const leftEnc  = face.left  ? encodeCoordinates(face.left.x,  face.left.y)  : 'N/A';
+                const rightEnc = face.right ? encodeCoordinates(face.right.x, face.right.y) : 'N/A';
+
+                let outName = data.originalName;
+                if (stripExt) {
+                    outName = baseName;
+                } else if (imageFiles[baseName] && imageFiles[baseName].originalName) {
+                    outName = imageFiles[baseName].originalName;
+                }
+
+                csvContent += `${outName},${face.faceNum},${leftEnc},${rightEnc}\n`;
+            });
+        }
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", "adjusted_landmarks.csv");
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    });
+
+</script>
+</body>
+</html>

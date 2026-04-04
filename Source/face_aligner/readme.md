@@ -1,55 +1,53 @@
-## Using DLIB
+# Face Align Time-Lapse Pipeline
 
-### 03_align_vid_dlib_mmod_fixedResolution_blurBG.py
-Takes a folder with videos as input. 
-Reads each frames using opencv. 
-Takes the first frame and finds eye position (outer eye corners) using dlib detection and predictor.
-Does the affine transform to place eye in the center of video and a particular ratio of the screen width.
-Applies the same transform for the rest of images and creates a temp video.
-Uses ffmpeg to add audio from original audtio back to temp video and create final transformed video.
+A modular Python pipeline that detects faces, aligns them around the eyes across hundreds of video/image clips, and concatenates them into a continuous time-lapse with blurred backgrounds.
 
-### 03_align_vid_dlib_mmod_fixedResolution_blurBG_optimized.py
-Scales the first frame by half before giving to dlib for speeding up and also helps to ignore small insignificant faces which helps in speeding up things.
+## The Workflow
 
-### 03_align_vid_dlib_mmod_fixedResolution_blurBG_optimized_threaded_eyeOuter.py
-Adds multi threading capability 
+### 1. Preparation & Detection
+- **`00_extract_first_frames.py`**
+  Extracts the first frame of every video in the input folder. Its easier and faster to work on the image rather than the video.
 
-### 03_align_vid_dlib_mmod_fixedResolution_blurBG_optimized_threaded_eyeCenter.py
-Uses eye center point instead of outer point
+- **`01_find_eyes_using_dlib.py`** or **`01_find_eyes_using_media_pipe_google_colab.py`**
+  Automatically detects faces in the inputs (output of last step) using either DLIB or MediaPipe. Generates a master CSV mapping every face to the exact left and right eye pixel coordinates.
+  (The web tool `02_review_annotation.html` can be used to review and correct these annotations in the next step.)
 
-### 02_align_img_dlib_mmod_fixedResolution_blurBG.py
-Takes a folder of images as input and transforms each image using eye outer corner and then converts to a static video of specified duration. (Please note it uses eye outer.. So results may not match with eye center aligned previous script)
+### 2. Manual Review & Correction
+- **`02_review_annotation.html`**
+  A local web-based tool. Open this in your browser and load the generated CSV along with the input folder containing images used in last step(using the File System Access API). 
+  It allows you to rapidly cycle through every detected face, verify the eye coordinates and manually correct any mistakes by adjusting eye positions. Export the newly refined CSV to use for actual alignment.
 
-### 04_extract_clips.py
-Extracts specified duration from already created videos.
+### 3. Alignment & Transformation
+- **`03_align_video_using_annotation_csv.py`** and **`03_align_image_using_annotation_csv.py`**
+  The heavy lifters. They read the eye-coordinate CSV and process the original high-res videos/images:
+  1. Detects rotation angle and scale to perfectly level the eyes at a consistent width (scaling dynamically based on the age/date of the clip).
+  2. Creates a zoomed-in, tightly cropped **foreground** over a 2× zoomed, Gaussian blurred **background** (eliminating black borders for portrait/oddly cropped videos).
+  3. Muxes original audio back into the final aligned clip.
 
-## Using Media Pipe.
+### 4. Polish & Concatenation
+- **`04_draw_date_over_video.py`**
+  Extracts short slices (e.g., 0.25 seconds) from the beginning of each processed clip. Parses the date out of the filename (e.g. `20201225_...` to "December 2020") and overlays it aesthetically via FFmpeg drawtext.
 
-## 80_colab_landmark_using_media_pipe.py
-Put all images and first frames of videos in an input folder. To get first frames of all videos (use 96_dbg_extractFirstFrames.py)
-Aligns using media pipe. Creates an output folder with the eyes and lips marked.
-Also outputs a csv with all detected faces rect and iris centers annotated.
-Removes extensions from file names in the csv.
+- **`05_join_clips.py`**
+  Normalises the audio sample rate and codecs across all short clips to prevent audio discontinuities or playback errors, then concatenates them losslessly into a single continuous final video. Sometimes audio issues are noticed when concatenating, in which case you can use a tool like imovie to join the clips.
 
-## VIA tool (download from online)
-Verify the output images and find files for which the iris center is not correct. For them use the (VIA) "VGG Image Annotator" tool to annotate the left eye center (point 1) and right eye center (point 2).
+---
 
-## 81_convert_manual_annot_csv_to_media_pipe_csv_format.py
-Export the csv from the VIA and convert to a format similar to one produced by media-pipe using script 
+## Utilities & Debugging
 
-## 82_merge_media_pipe_csv_and_manual_annotate_csv.py
-Merge the manual and automatic csv using this script.
+- **`util.py`**
+  Shared utility functions.
 
-Now we have a comprehensive csv with all filenames (photo and video) and position of left iris and right iris inside it.
+- **`debug_01_verify_annotated_csv_with_input.py`**
+  Checks the annotated CSV against the input folder to ensure every input file has an annotation, and every annotation corresponds to a real input file. Report if there are two or more faces per file in annotation CSV.
 
-## 83_align_image_using_mediapipe_csv.py
-## 83_align_video_using_mediapipe_csv.py
-Create face aligned videos from both input videos and images using these two scripts.
+- **`debug_02_verify_every_input_done.py`**
+  Sanity check: matches input filenames against output filenames to flag any files that the pipeline failed on or skipped.
 
-## 84_cleanup_media_pipe_csv.py
-Verify all the outputs and find names of files which we dont need. Collect all such filenames without extension and put it in a text file. We can remove these entries from the csv so that, in case of further regeneration, we dont need to do manual verification and cleanup again.
+- **`debug_03_clear_directories.py`**
+  Utility to wipe all intermediate `output`, `failed`, and `debug` folders clean before running a fresh sequential batch.
 
-## Clip merging
-FFMPEG muxing corrupts audio. Need to find reason why.
-Use imovie or other editors to combine all the video clips to a single file. 
-
+## Required Setup
+- Dependencies are found in `requirements.txt`
+- DLIB processing requires placing `mmod_human_face_detector.dat` and `shape_predictor_68_face_landmarks.dat` into the root directory.
+- MediaPipe pipeline requires `face_landmarker_v2_with_blendshapes.task`.
